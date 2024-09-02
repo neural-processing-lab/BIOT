@@ -7,7 +7,65 @@ from scipy.signal import resample
 from scipy.signal import butter, iirnotch, filtfilt
 from scipy.interpolate import interp1d
 from scipy.signal import butter, lfilter
+from pnpl.datasets import Shafto2014, Gwilliams2022, Armeni2022
 
+class ArmeniLoader(torch.utils.data.Dataset):
+    def __init__(self, split):
+            
+        if split == "train":
+            self.data = Armeni2022(
+                data_path="/data/engs-pnpl/lina4368/armeni2022",
+                preproc_path="/data/engs-pnpl/lina4368/armeni2022",
+                l_freq=0.5,
+                h_freq=125,
+                resample_freq=250,
+                notch_freq=50,
+                interpolate_bad_channels=True,
+                window_len=0.5,
+                label="speech",
+                info=["subject_id", "session", "dataset"],
+                # include_subjects=["001", "003"],
+                include_sessions={"001": ["001", "002"]},
+                # exclude_sessions={"001": ["009", "010"], "002": ["009", "010"], "003": ["009", "010"]},
+            )
+        elif split == "val":
+            self.data = Armeni2022(
+                data_path="/data/engs-pnpl/lina4368/armeni2022",
+                preproc_path="/data/engs-pnpl/lina4368/armeni2022",
+                l_freq=0.5,
+                h_freq=125,
+                resample_freq=250,
+                notch_freq=50,
+                interpolate_bad_channels=True,
+                window_len=0.5,
+                label="speech",
+                info=["subject_id", "session", "dataset"],
+                include_sessions={"001": ["009"], "002": ["009"], "003": ["009"]},
+            )
+        elif split == "test":
+            self.data = Armeni2022(
+                data_path="/data/engs-pnpl/lina4368/armeni2022",
+                preproc_path="/data/engs-pnpl/lina4368/armeni2022",
+                l_freq=0.5,
+                h_freq=125,
+                resample_freq=250,
+                notch_freq=50,
+                interpolate_bad_channels=True,
+                window_len=0.5,
+                label="speech",
+                info=["subject_id", "session", "dataset"],
+                include_sessions={"001": ["010"], "002": ["010"], "003": ["010"]},
+            )
+        else:
+            raise ValueError(f"Unkown split: {split}")
+        
+    def __len__(self):
+        return len(self.data)
+
+    def __getitem__(self, index):
+        X = torch.FloatTensor(self.data[index]["data"])
+        Y = torch.IntTensor(self.data[index]["speech"])
+        return X, Y
 
 class TUABLoader(torch.utils.data.Dataset):
     def __init__(self, root, files, sampling_rate=200):
@@ -213,6 +271,33 @@ class UnsupervisedPretrainLoader(torch.utils.data.Dataset):
             index = index - len(self.prest_list)
             return self.shhs_load(index)
 
+class CamCANUnsupervisedLoader(torch.utils.data.Dataset):
+    def __init__(self):
+        self.data = Shafto2014(
+            data_path="/data/engs-pnpl/lina4368/shafto2014/cc700/meg/pipeline/release005/BIDSsep",
+            preproc_path="/data/engs-pnpl/lina4368/shafto2014/cc700/meg/pipeline/release005/BIDSsep",
+            l_freq=0.5,
+            h_freq=125,
+            resample_freq=250,
+            notch_freq=50,
+            interpolate_bad_channels=True,
+            window_len=0.5,
+            info=["subject", "dataset"],
+            # include_subjects=["CC723395"],
+        )
+    
+    def __len__(self):
+        return len(self.data)
+
+    def __getitem__(self, index):
+        # (n_channels, n_samples)
+        sample = self.data[index]
+        sample["data"] = resample(sample["data"], 6000, axis=-1)
+        return self.data[index]
+
+def collate_fn_camcan_pretrain(batch):
+    batch = list(map(lambda x: torch.FloatTensor(x["data"]), batch))
+    return torch.stack(batch, 0)
 
 def collate_fn_unsupervised_pretrain(batch):
     prest_samples, shhs_samples = [], []

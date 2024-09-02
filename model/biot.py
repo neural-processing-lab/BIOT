@@ -130,11 +130,12 @@ class BIOTEncoder(nn.Module):
             channel_emb = self.positional_encoding(channel_spec_emb + channel_token_emb)
 
             # perturb
-            if perturb:
+            if perturb and channel_emb.shape[1] > 1:
                 ts = channel_emb.shape[1]
                 ts_new = np.random.randint(ts // 2, ts)
                 selected_ts = np.random.choice(range(ts), ts_new, replace=False)
-                channel_emb = channel_emb[:, selected_ts]
+                channel_emb = channel_emb[:, selected_ts, :]
+
             emb_seq.append(channel_emb)
 
         # (batch_size, 16 * ts, emb)
@@ -152,7 +153,8 @@ class BIOTClassifier(nn.Module):
         self.classifier = ClassificationHead(emb_size, n_classes)
 
     def forward(self, x):
-        x = self.biot(x)
+        with torch.no_grad():
+            x = self.biot(x)
         x = self.classifier(x)
         return x
 

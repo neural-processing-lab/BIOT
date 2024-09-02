@@ -1,7 +1,10 @@
 torch
-numpy
+numpy==1.26.6
 linear_attention_transformer
 einops
-pytorch_lightning
+pyhealth
+pytorch_lightning==1.9.5
 scipy
+tensorboardX
 tqdm
+wandb

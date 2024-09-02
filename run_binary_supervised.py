@@ -22,7 +22,7 @@ from model import (
     STTransformer,
     BIOTClassifier,
 )
-from utils import TUABLoader, CHBMITLoader, PTBLoader, focal_loss, BCE
+from utils import ArmeniLoader, TUABLoader, CHBMITLoader, PTBLoader, focal_loss, BCE
 
 
 class LitModel_finetune(pl.LightningModule):
@@ -33,7 +33,10 @@ class LitModel_finetune(pl.LightningModule):
         self.args = args
 
     def training_step(self, batch, batch_idx):
+        # X : [B, C, T], Y : [B, T]
+        # We want X : [B * T, C] and [B * T]
         X, y = batch
+        y = y[:, 0].flatten()
         prob = self.model(X)
         loss = BCE(prob, y)  # focal_loss(prob, y)
         self.log("train_loss", loss)
@@ -41,6 +44,7 @@ class LitModel_finetune(pl.LightningModule):
 
     def validation_step(self, batch, batch_idx):
         X, y = batch
+        y = y[:, 0].flatten()
         with torch.no_grad():
             prob = self.model(X)
             step_result = torch.sigmoid(prob).cpu().numpy()
@@ -79,6 +83,7 @@ class LitModel_finetune(pl.LightningModule):
 
     def test_step(self, batch, batch_idx):
         X, y = batch
+        y = y[:, 0].flatten()
         with torch.no_grad():
             convScore = self.model(X)
             step_result = torch.sigmoid(convScore).cpu().numpy()
@@ -123,6 +128,38 @@ class LitModel_finetune(pl.LightningModule):
 
         return [optimizer]  # , [scheduler]
 
+
+def prepare_Armeni_dataloader(args):
+    seed = 12345
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    np.random.seed(seed)
+
+    train_loader = torch.utils.data.DataLoader(
+        ArmeniLoader(split="train"),
+        batch_size=args.batch_size,
+        shuffle=True,
+        drop_last=True,
+        num_workers=args.num_workers,
+        persistent_workers=True,
+    )
+    test_loader = torch.utils.data.DataLoader(
+        ArmeniLoader(split="test"),
+        batch_size=args.batch_size,
+        shuffle=False,
+        num_workers=args.num_workers,
+        persistent_workers=True,
+    )
+    val_loader = torch.utils.data.DataLoader(
+        ArmeniLoader(split="val"),
+        batch_size=args.batch_size,
+        shuffle=False,
+        num_workers=args.num_workers,
+        persistent_workers=True,
+    )
+    print(len(train_loader), len(val_loader), len(test_loader))
+    return train_loader, test_loader, val_loader
 
 def prepare_TUAB_dataloader(args):
     # set random seed
@@ -263,7 +300,8 @@ def supervised(args):
     # get data loaders
     if args.dataset == "TUAB":
         train_loader, test_loader, val_loader = prepare_TUAB_dataloader(args)
-
+    elif args.dataset == "Armeni2022":
+        train_loader, test_loader, val_loader = prepare_Armeni_dataloader(args)
     else:
         raise NotImplementedError
 
@@ -330,7 +368,15 @@ def supervised(args):
             hop_length=args.hop_length,
         )
         if args.pretrain_model_path and (args.sampling_rate == 200):
-            model.biot.load_state_dict(torch.load(args.pretrain_model_path))
+            checkpoint = torch.load(args.pretrain_model_path)
+            # Extract the full state dict
+            full_state_dict = checkpoint['state_dict']
+            # Filter the state dict to only include keys for the 'biot' part
+            biot_state_dict = {
+                k.replace('model.biot.', ''): v for k, v in full_state_dict.items() 
+                if k.startswith('model.biot.')
+            }
+            model.biot.load_state_dict(biot_state_dict)
             print(f"load pretrain model from {args.pretrain_model_path}")
 
     else:
@@ -352,7 +398,7 @@ def supervised(args):
         devices=[0],
         accelerator="gpu",
         strategy=DDPStrategy(find_unused_parameters=False),
-        auto_select_gpus=True,
+        # auto_select_gpus=True,
         benchmark=True,
         enable_checkpointing=True,
         logger=logger,
@@ -383,12 +429,12 @@ if __name__ == "__main__":
                         default=512, help="batch size")
     parser.add_argument("--num_workers", type=int,
                         default=32, help="number of workers")
-    parser.add_argument("--dataset", type=str, default="TUAB", help="dataset")
+    parser.add_argument("--dataset", type=str, default="Armeni2022", help="dataset")
     parser.add_argument(
-        "--model", type=str, default="SPaRCNet", help="which supervised model to use"
+        "--model", type=str, default="BIOT", help="which supervised model to use"
     )
     parser.add_argument(
-        "--in_channels", type=int, default=16, help="number of input channels"
+        "--in_channels", type=int, default=306, help="number of input channels"
     )
     parser.add_argument(
         "--sample_length", type=float, default=10, help="length (s) of sample"

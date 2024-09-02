@@ -9,13 +9,13 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 import pytorch_lightning as pl
-from pytorch_lightning.loggers import TensorBoardLogger
+from pytorch_lightning.loggers import TensorBoardLogger, WandbLogger
 from pytorch_lightning.strategies import DDPStrategy
 from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.callbacks.early_stopping import EarlyStopping
 
 from model import UnsupervisedPretrain
-from utils import UnsupervisedPretrainLoader, collate_fn_unsupervised_pretrain
+from utils import CamCANUnsupervisedLoader, collate_fn_camcan_pretrain
 
      
 class LitModel_supervised_pretrain(pl.LightningModule):
@@ -24,7 +24,7 @@ class LitModel_supervised_pretrain(pl.LightningModule):
         self.args = args
         self.save_path = save_path
         self.T = 0.2
-        self.model = UnsupervisedPretrain(emb_size=256, heads=8, depth=4, n_channels=18) # 16 for PREST (resting) + 2 for SHHS (sleeping)
+        self.model = UnsupervisedPretrain(emb_size=256, heads=8, depth=4, n_channels=306, n_fft=125) # 306 channels for CamCAN; 125 n_fft due to 0.5s 250Hz (125 sample sample rate)
         
     def training_step(self, batch, batch_idx):
 
@@ -34,37 +34,15 @@ class LitModel_supervised_pretrain(pl.LightningModule):
                 filepath=f"{self.save_path}/epoch={self.current_epoch}_step={self.global_step}.ckpt"
             )
 
-        prest_samples, shhs_samples = batch
+        samples = batch.float()
         contrastive_loss = 0
 
-        if len(prest_samples) > 0:
-            """
-            For prest
-            """
-            prest_masked_emb, prest_samples_emb = self.model(prest_samples, 0)
+        masked_emb, samples_emb = self.model(samples, 0)
+        samples_emb = F.normalize(samples_emb, dim=1, p=2)
+        masked_emb = F.normalize(masked_emb, dim=1, p=2)
+        N = samples.shape[0]
 
-            # L2 normalize
-            prest_samples_emb = F.normalize(prest_samples_emb, dim=1, p=2)
-            prest_masked_emb = F.normalize(prest_masked_emb, dim=1, p=2)
-            N = prest_samples.shape[0]
-
-            # representation similarity matrix, NxN
-            logits = torch.mm(prest_samples_emb, prest_masked_emb.t()) / self.T
-            labels = torch.arange(N).to(logits.device)
-            contrastive_loss += F.cross_entropy(logits, labels, reduction="mean")
-
-        """
-        For shhs
-        """
-        shhs_masked_emb, shhs_samples_emb = self.model(shhs_samples, 16)
-
-        # For shhs
-        shhs_samples_emb = F.normalize(shhs_samples_emb, dim=1, p=2)
-        shhs_masked_emb = F.normalize(shhs_masked_emb, dim=1, p=2)
-        N = shhs_samples_emb.shape[0]
-
-        # representation similarity matrix, NxN
-        logits = torch.mm(shhs_samples_emb, shhs_masked_emb.t()) / self.T
+        logits = torch.mm(samples_emb, masked_emb.t()) / self.T
         labels = torch.arange(N).to(logits.device)
         contrastive_loss += F.cross_entropy(logits, labels, reduction="mean")
 
@@ -94,10 +72,8 @@ def prepare_dataloader(args):
     torch.cuda.manual_seed_all(seed)
     np.random.seed(seed)
 
-    # define the (seizure) data loader
-    root_prest = "/srv/local/data/IIIC_data/5M_IIIC_data/processed/s7n16"
-    root_shhs = "/srv/local/data/SHHS/processed"
-    loader = UnsupervisedPretrainLoader(root_prest, root_shhs)
+    # define the CamCAN dataloader
+    loader = CamCANUnsupervisedLoader()
     train_loader = torch.utils.data.DataLoader(
         loader,
         batch_size=args.batch_size,
@@ -105,7 +81,7 @@ def prepare_dataloader(args):
         num_workers=args.num_workers,
         persistent_workers=True,
         drop_last=True,
-        collate_fn=collate_fn_unsupervised_pretrain,
+        collate_fn=collate_fn_camcan_pretrain,
     )
     
     return train_loader
@@ -126,16 +102,21 @@ def pretrain(args):
     
     model = LitModel_supervised_pretrain(args, save_path)
     
-    logger = TensorBoardLogger(
+    # logger = TensorBoardLogger(
+    #     save_dir="/data/engs-pnpl/lina4368/experiments/BIOT/logs",
+    #     version=f"{N_version}/checkpoints",
+    #     name="log-pretrain",
+    # )
+    logger = WandbLogger(
+        project="BIOT",
+        name=f"unsupervised-pretrain-{N_version}",
         save_dir="/data/engs-pnpl/lina4368/experiments/BIOT/logs",
-        version=f"{N_version}/checkpoints",
-        name="log-pretrain",
     )
     trainer = pl.Trainer(
-        devices=[2],
+        devices=[0],
         accelerator="gpu",
         strategy=DDPStrategy(find_unused_parameters=False),
-        auto_select_gpus=True,
+        # auto_select_gpus=True,
         benchmark=True,
         enable_checkpointing=True,
         logger=logger,
