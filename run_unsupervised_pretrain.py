@@ -116,17 +116,18 @@ def pretrain(args):
     # get data loaders
     train_loader = prepare_dataloader(args)
     
+    save_prefix = "/data/engs-pnpl/lina4368/experiments/BIOT/weights"
     # define the trainer
     N_version = (
-        len(os.listdir(os.path.join("log-pretrain"))) + 1
+        len(os.listdir(os.path.join(save_prefix))) + 1
     )
     # define the model
-    save_path = f"log-pretrain/{N_version}-unsupervised/checkpoints"
+    save_path = f"{save_prefix}/{N_version}-unsupervised/checkpoints"
     
     model = LitModel_supervised_pretrain(args, save_path)
     
     logger = TensorBoardLogger(
-        save_dir="/home/chaoqiy2/github/LEM",
+        save_dir="/data/engs-pnpl/lina4368/experiments/BIOT/logs",
         version=f"{N_version}/checkpoints",
         name="log-pretrain",
     )

@@ -3,4 +3,5 @@ numpy
 linear_attention_transformer
 einops
 pytorch_lightning
+scipy
 tqdm
