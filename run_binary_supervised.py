@@ -36,7 +36,7 @@ class LitModel_finetune(pl.LightningModule):
         # X : [B, C, T], Y : [B, T]
         # We want X : [B * T, C] and [B * T]
         X, y = batch
-        y = y[:, 0].flatten()
+        y = torch.mode(y, dim=1)
         prob = self.model(X)
         loss = BCE(prob, y)  # focal_loss(prob, y)
         self.log("train_loss", loss)
@@ -44,7 +44,7 @@ class LitModel_finetune(pl.LightningModule):
 
     def validation_step(self, batch, batch_idx):
         X, y = batch
-        y = y[:, 0].flatten()
+        y = torch.mode(y, dim=1)
         with torch.no_grad():
             prob = self.model(X)
             step_result = torch.sigmoid(prob).cpu().numpy()
@@ -83,7 +83,7 @@ class LitModel_finetune(pl.LightningModule):
 
     def test_step(self, batch, batch_idx):
         X, y = batch
-        y = y[:, 0].flatten()
+        y = torch.mode(y, dim=1)
         with torch.no_grad():
             convScore = self.model(X)
             step_result = torch.sigmoid(convScore).cpu().numpy()
