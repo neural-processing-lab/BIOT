@@ -8,7 +8,7 @@ import numpy as np
 import torch.nn as nn
 
 import pytorch_lightning as pl
-from pytorch_lightning.loggers import TensorBoardLogger
+from pytorch_lightning.loggers import TensorBoardLogger, WandbLogger
 from pytorch_lightning.strategies import DDPStrategy
 from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.callbacks.early_stopping import EarlyStopping
@@ -36,17 +36,23 @@ class LitModel_finetune(pl.LightningModule):
         # X : [B, C, T], Y : [B, T]
         # We want X : [B * T, C] and [B * T]
         X, y = batch
-        y = torch.mode(y, dim=1)
-        prob = self.model(X)
+        prob = self.model(X).squeeze() # [B, T, 1] -> [B, T]
+        y = torch.nn.functional.interpolate(
+            y.float().unsqueeze(1),  # [B, 1, T]
+            size=prob.shape[1],  # T2
+        ).squeeze(1).int()  # [B, T2]
         loss = BCE(prob, y)  # focal_loss(prob, y)
         self.log("train_loss", loss)
         return loss
 
     def validation_step(self, batch, batch_idx):
         X, y = batch
-        y = torch.mode(y, dim=1)
         with torch.no_grad():
-            prob = self.model(X)
+            prob = self.model(X).squeeze()
+            y = torch.nn.functional.interpolate(
+                y.float().unsqueeze(1),  # [B, 1, T]
+                size=prob.shape[1],  # T2
+            ).squeeze(1).int()  # [B, T2]
             step_result = torch.sigmoid(prob).cpu().numpy()
             step_gt = y.cpu().numpy()
         return step_result, step_gt
@@ -83,9 +89,12 @@ class LitModel_finetune(pl.LightningModule):
 
     def test_step(self, batch, batch_idx):
         X, y = batch
-        y = torch.mode(y, dim=1)
         with torch.no_grad():
-            convScore = self.model(X)
+            convScore = self.model(X).squeeze()
+            y = torch.nn.functional.interpolate(
+                y.float().unsqueeze(1),  # [B, 1, T]
+                size=convScore.shape[1],  # T2
+            ).squeeze(1).int()  # [B, T2]
             step_result = torch.sigmoid(convScore).cpu().numpy()
             step_gt = y.cpu().numpy()
         return step_result, step_gt
@@ -366,6 +375,7 @@ def supervised(args):
             n_channels=args.in_channels,
             n_fft=args.token_size,
             hop_length=args.hop_length,
+            take_emb_mean=False,
         )
         if args.pretrain_model_path and (args.sampling_rate == 200):
             checkpoint = torch.load(args.pretrain_model_path)
@@ -385,10 +395,10 @@ def supervised(args):
 
     # logger and callbacks
     version = f"{args.dataset}-{args.model}-{args.lr}-{args.batch_size}-{args.sampling_rate}-{args.token_size}-{args.hop_length}"
-    logger = TensorBoardLogger(
-        save_dir="./",
-        version=version,
-        name="log",
+    logger = WandbLogger(
+        project="BIOT",
+        name=f"binary-supervised",
+        save_dir="/data/engs-pnpl/lina4368/experiments/BIOT/logs",
     )
     early_stop_callback = EarlyStopping(
         monitor="val_auroc", patience=5, verbose=False, mode="max"

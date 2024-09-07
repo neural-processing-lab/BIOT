@@ -25,8 +25,8 @@ class ArmeniLoader(torch.utils.data.Dataset):
                 label="speech",
                 info=["subject_id", "session", "dataset"],
                 # include_subjects=["001", "003"],
-                include_sessions={"001": ["001", "002"]},
-                # exclude_sessions={"001": ["009", "010"], "002": ["009", "010"], "003": ["009", "010"]},
+                # include_sessions={"001": ["001", "002"]},
+                exclude_sessions={"001": ["009", "010"], "002": ["009", "010"], "003": ["009", "010"]},
             )
         elif split == "val":
             self.data = Armeni2022(

@@ -98,6 +98,8 @@ class BIOTEncoder(nn.Module):
             torch.LongTensor(range(n_channels)), requires_grad=False
         )
 
+        self.take_emb_mean = kwargs.get("take_emb_mean", True)
+
     def stft(self, sample):
         spectral = torch.stft( 
             input = sample.squeeze(1),
@@ -141,7 +143,9 @@ class BIOTEncoder(nn.Module):
         # (batch_size, 16 * ts, emb)
         emb = torch.cat(emb_seq, dim=1)
         # (batch_size, emb)
-        emb = self.transformer(emb).mean(dim=1)
+        emb = self.transformer(emb)
+        if self.take_emb_mean:
+            emb = emb.mean(dim=1)
         return emb
 
 
@@ -150,12 +154,17 @@ class BIOTClassifier(nn.Module):
     def __init__(self, emb_size=256, heads=8, depth=4, n_classes=6, **kwargs):
         super().__init__()
         self.biot = BIOTEncoder(emb_size=emb_size, heads=heads, depth=depth, **kwargs)
+        self.take_emb_mean = kwargs.get("take_emb_mean", True)
+        for p in self.biot.parameters():
+            p.requires_grad = False
         self.classifier = ClassificationHead(emb_size, n_classes)
 
     def forward(self, x):
-        with torch.no_grad():
-            x = self.biot(x)
-        x = self.classifier(x)
+        x = self.biot(x)
+        if not self.take_emb_mean:
+            B, T, _ = x.shape
+            x = self.classifier(x.flatten(start_dim=0, end_dim=1))
+            x = torch.unflatten(x, dim=0, sizes=(B, T))
         return x
 
 
