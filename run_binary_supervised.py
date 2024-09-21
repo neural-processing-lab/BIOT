@@ -22,7 +22,7 @@ from model import (
     STTransformer,
     BIOTClassifier,
 )
-from utils import ArmeniLoader, TUABLoader, CHBMITLoader, PTBLoader, focal_loss, BCE
+from utils import ArmeniLoader, GwilliamsLoader, TUABLoader, CHBMITLoader, PTBLoader, focal_loss, BCE
 
 
 class LitModel_finetune(pl.LightningModule):
@@ -139,7 +139,7 @@ class LitModel_finetune(pl.LightningModule):
 
 
 def prepare_Armeni_dataloader(args):
-    seed = 12345
+    seed = args.seed
     torch.manual_seed(seed)
     torch.cuda.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
@@ -162,6 +162,38 @@ def prepare_Armeni_dataloader(args):
     )
     val_loader = torch.utils.data.DataLoader(
         ArmeniLoader(split="val"),
+        batch_size=args.batch_size,
+        shuffle=False,
+        num_workers=args.num_workers,
+        persistent_workers=True,
+    )
+    print(len(train_loader), len(val_loader), len(test_loader))
+    return train_loader, test_loader, val_loader
+
+def prepare_Gwilliams_dataloader(args):
+    seed = args.seed
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    np.random.seed(seed)
+
+    train_loader = torch.utils.data.DataLoader(
+        GwilliamsLoader(split="train"),
+        batch_size=args.batch_size,
+        shuffle=True,
+        drop_last=True,
+        num_workers=args.num_workers,
+        persistent_workers=True,
+    )
+    test_loader = torch.utils.data.DataLoader(
+        GwilliamsLoader(split="test"),
+        batch_size=args.batch_size,
+        shuffle=False,
+        num_workers=args.num_workers,
+        persistent_workers=True,
+    )
+    val_loader = torch.utils.data.DataLoader(
+        GwilliamsLoader(split="val"),
         batch_size=args.batch_size,
         shuffle=False,
         num_workers=args.num_workers,
@@ -311,6 +343,8 @@ def supervised(args):
         train_loader, test_loader, val_loader = prepare_TUAB_dataloader(args)
     elif args.dataset == "Armeni2022":
         train_loader, test_loader, val_loader = prepare_Armeni_dataloader(args)
+    elif args.dataset == "Gwilliams2022":
+        train_loader, test_loader, val_loader = prepare_Gwilliams_dataloader(args)
     else:
         raise NotImplementedError
 
@@ -413,7 +447,7 @@ def supervised(args):
         enable_checkpointing=True,
         logger=logger,
         max_epochs=args.epochs,
-        callbacks=[early_stop_callback],
+        # callbacks=[early_stop_callback],
     )
 
     # train the model
@@ -462,6 +496,9 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--pretrain_model_path", type=str, default="", help="pretrained model path"
+    )
+    parser.add_argument(
+        '--seed', type=int, default=12345, help='random seed'
     )
     args = parser.parse_args()
     print(args)
