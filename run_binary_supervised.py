@@ -36,11 +36,7 @@ class LitModel_finetune(pl.LightningModule):
         # X : [B, C, T], Y : [B, T]
         # We want X : [B * T, C] and [B * T]
         X, y = batch
-        prob = self.model(X).squeeze() # [B, T, 1] -> [B, T]
-        y = torch.nn.functional.interpolate(
-            y.float().unsqueeze(1),  # [B, 1, T]
-            size=prob.shape[1],  # T2
-        ).squeeze(1).int()  # [B, T2]
+        prob = self.model(X) # [B, T, 1] -> [B, T]
         loss = BCE(prob, y)  # focal_loss(prob, y)
         self.log("train_loss", loss)
         return loss
@@ -48,11 +44,7 @@ class LitModel_finetune(pl.LightningModule):
     def validation_step(self, batch, batch_idx):
         X, y = batch
         with torch.no_grad():
-            prob = self.model(X).squeeze()
-            y = torch.nn.functional.interpolate(
-                y.float().unsqueeze(1),  # [B, 1, T]
-                size=prob.shape[1],  # T2
-            ).squeeze(1).int()  # [B, T2]
+            prob = self.model(X)
             step_result = torch.sigmoid(prob).cpu().numpy()
             step_gt = y.cpu().numpy()
         return step_result, step_gt
@@ -71,7 +63,7 @@ class LitModel_finetune(pl.LightningModule):
             result = binary_metrics_fn(
                 gt,
                 result,
-                metrics=["pr_auc", "roc_auc", "accuracy", "balanced_accuracy"],
+                metrics=["pr_auc", "roc_auc", "accuracy", "balanced_accuracy", "f1", "precision", "recall"],
                 threshold=self.threshold,
             )
         else:
@@ -80,21 +72,23 @@ class LitModel_finetune(pl.LightningModule):
                 "balanced_accuracy": 0.0,
                 "pr_auc": 0.0,
                 "roc_auc": 0.0,
+                "f1": 0.0,
+                "precision": 0.0,
+                "recall": 0.0,
             }
         self.log("val_acc", result["accuracy"], sync_dist=True)
         self.log("val_bacc", result["balanced_accuracy"], sync_dist=True)
         self.log("val_pr_auc", result["pr_auc"], sync_dist=True)
         self.log("val_auroc", result["roc_auc"], sync_dist=True)
+        self.log("val_f1", result["f1"], sync_dist=True)
+        self.log("val_precision", result["precision"], sync_dist=True)
+        self.log("val_recall", result["recall"], sync_dist=True)
         print(result)
 
     def test_step(self, batch, batch_idx):
         X, y = batch
         with torch.no_grad():
-            convScore = self.model(X).squeeze()
-            y = torch.nn.functional.interpolate(
-                y.float().unsqueeze(1),  # [B, 1, T]
-                size=convScore.shape[1],  # T2
-            ).squeeze(1).int()  # [B, T2]
+            convScore = self.model(X)
             step_result = torch.sigmoid(convScore).cpu().numpy()
             step_gt = y.cpu().numpy()
         return step_result, step_gt
@@ -111,7 +105,7 @@ class LitModel_finetune(pl.LightningModule):
             result = binary_metrics_fn(
                 gt,
                 result,
-                metrics=["pr_auc", "roc_auc", "accuracy", "balanced_accuracy"],
+                metrics=["pr_auc", "roc_auc", "accuracy", "balanced_accuracy", "f1", "precision", "recall"],
                 threshold=self.threshold,
             )
         else:
@@ -120,11 +114,17 @@ class LitModel_finetune(pl.LightningModule):
                 "balanced_accuracy": 0.0,
                 "pr_auc": 0.0,
                 "roc_auc": 0.0,
+                "f1": 0.0,
+                "precision": 0.0,
+                "recall": 0.0,
             }
         self.log("test_acc", result["accuracy"], sync_dist=True)
         self.log("test_bacc", result["balanced_accuracy"], sync_dist=True)
         self.log("test_pr_auc", result["pr_auc"], sync_dist=True)
         self.log("test_auroc", result["roc_auc"], sync_dist=True)
+        self.log("test_f1", result["f1"], sync_dist=True)
+        self.log("test_precision", result["precision"], sync_dist=True)
+        self.log("test_recall", result["recall"], sync_dist=True)
 
         return result
 
@@ -413,13 +413,14 @@ def supervised(args):
         )
         if args.pretrain_model_path and (args.sampling_rate == 200):
             checkpoint = torch.load(args.pretrain_model_path)
-            # Extract the full state dict
-            full_state_dict = checkpoint['state_dict']
-            # Filter the state dict to only include keys for the 'biot' part
-            biot_state_dict = {
-                k.replace('model.biot.', ''): v for k, v in full_state_dict.items() 
-                if k.startswith('model.biot.')
-            }
+            # # Extract the full state dict
+            # full_state_dict = checkpoint['state_dict']
+            # # Filter the state dict to only include keys for the 'biot' part
+            # biot_state_dict = {
+            #     k.replace('model.biot.', ''): v for k, v in full_state_dict.items() 
+            #     if k.startswith('model.biot.')
+            # }
+            biot_state_dict = checkpoint
             model.biot.load_state_dict(biot_state_dict)
             print(f"load pretrain model from {args.pretrain_model_path}")
 
@@ -447,7 +448,7 @@ def supervised(args):
         enable_checkpointing=True,
         logger=logger,
         max_epochs=args.epochs,
-        # callbacks=[early_stop_callback],
+        callbacks=[early_stop_callback],
     )
 
     # train the model
@@ -466,13 +467,13 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--epochs", type=int, default=100,
                         help="number of epochs")
-    parser.add_argument("--lr", type=float, default=1e-3, help="learning rate")
+    parser.add_argument("--lr", type=float, default=0.000066, help="learning rate")
     parser.add_argument("--weight_decay", type=float,
                         default=1e-5, help="weight decay")
     parser.add_argument("--batch_size", type=int,
-                        default=512, help="batch size")
+                        default=128, help="batch size")
     parser.add_argument("--num_workers", type=int,
-                        default=32, help="number of workers")
+                        default=8, help="number of workers")
     parser.add_argument("--dataset", type=str, default="Armeni2022", help="dataset")
     parser.add_argument(
         "--model", type=str, default="BIOT", help="which supervised model to use"

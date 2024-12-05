@@ -24,7 +24,9 @@ class LitModel_supervised_pretrain(pl.LightningModule):
         self.args = args
         self.save_path = save_path
         self.T = 0.2
-        self.model = UnsupervisedPretrain(emb_size=256, heads=8, depth=4, n_channels=306, n_fft=125) # 306 channels for CamCAN; 125 n_fft due to 0.5s 250Hz (125 sample sample rate)
+
+        # 306 channels for CamCAN; 250 n_fft due to 1s 250Hz (250 samples)
+        self.model = UnsupervisedPretrain(emb_size=256, heads=8, depth=4, n_channels=306, n_fft=250) 
         
     def training_step(self, batch, batch_idx):
 
@@ -73,7 +75,7 @@ def prepare_dataloader(args):
     np.random.seed(seed)
 
     # define the CamCAN dataloader
-    loader = CamCANUnsupervisedLoader()
+    loader = CamCANUnsupervisedLoader(split='train', truncate=args.truncate)
     train_loader = torch.utils.data.DataLoader(
         loader,
         batch_size=args.batch_size,
@@ -102,11 +104,6 @@ def pretrain(args):
     
     model = LitModel_supervised_pretrain(args, save_path)
     
-    # logger = TensorBoardLogger(
-    #     save_dir="/data/engs-pnpl/lina4368/experiments/BIOT/logs",
-    #     version=f"{N_version}/checkpoints",
-    #     name="log-pretrain",
-    # )
     logger = WandbLogger(
         project="BIOT",
         name=f"unsupervised-pretrain-{N_version}",
@@ -134,6 +131,7 @@ if __name__ == "__main__":
     parser.add_argument("--weight_decay", type=float, default=1e-5, help="weight decay")
     parser.add_argument("--batch_size", type=int, default=128, help="batch size")
     parser.add_argument("--num_workers", type=int, default=32, help="number of workers")
+    parser.add_argument("--truncate", type=int, default=0, help="truncate train set for development")
     args = parser.parse_args()
     print (args)
 

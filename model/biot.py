@@ -157,14 +157,22 @@ class BIOTClassifier(nn.Module):
         self.take_emb_mean = kwargs.get("take_emb_mean", True)
         for p in self.biot.parameters():
             p.requires_grad = False
-        self.classifier = ClassificationHead(emb_size, n_classes)
+        self.classifier = ClassificationHead(emb_size * 36, n_classes)
 
     def forward(self, x):
-        x = self.biot(x)
+        
+        # # Standard scale the batch
+        # mean = x.mean(dim=(0, -1))
+        # std = x.std(dim=(0, -1))
+        # x = (
+        #     (x - mean[None, :, None]) / std[None, :, None]
+        # )
+
+        with torch.no_grad():
+            x = self.biot(x)
+
         if not self.take_emb_mean:
-            B, T, _ = x.shape
-            x = self.classifier(x.flatten(start_dim=0, end_dim=1))
-            x = torch.unflatten(x, dim=0, sizes=(B, T))
+            x = self.classifier(x.flatten(start_dim=1, end_dim=-1))
         return x
 
 
@@ -180,6 +188,14 @@ class UnsupervisedPretrain(nn.Module):
         )
 
     def forward(self, x, n_channel_offset=0):
+
+        # # Standard scale the batch
+        # mean = x.mean(dim=(0, -1))
+        # std = x.std(dim=(0, -1))
+        # x = (
+        #     (x - mean[None, :, None]) / std[None, :, None]
+        # )
+
         emb = self.biot(x, n_channel_offset, perturb=True)
         emb = self.prediction(emb)
         pred_emb = self.biot(x, n_channel_offset)
