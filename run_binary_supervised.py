@@ -413,14 +413,18 @@ def supervised(args):
         )
         if args.pretrain_model_path and (args.sampling_rate == 200):
             checkpoint = torch.load(args.pretrain_model_path)
-            # # Extract the full state dict
-            # full_state_dict = checkpoint['state_dict']
-            # # Filter the state dict to only include keys for the 'biot' part
-            # biot_state_dict = {
-            #     k.replace('model.biot.', ''): v for k, v in full_state_dict.items() 
-            #     if k.startswith('model.biot.')
-            # }
-            biot_state_dict = checkpoint
+
+            ## PREVIOUSLY COMMENTED OUT
+            # Extract the full state dict
+            full_state_dict = checkpoint['state_dict']
+            # Filter the state dict to only include keys for the 'biot' part
+            biot_state_dict = {
+                k.replace('model.biot.', ''): v for k, v in full_state_dict.items() 
+                if k.startswith('model.biot.')
+            }
+            ##
+            # biot_state_dict = checkpoint
+
             model.biot.load_state_dict(biot_state_dict)
             print(f"load pretrain model from {args.pretrain_model_path}")
 
@@ -432,7 +436,7 @@ def supervised(args):
     version = f"{args.dataset}-{args.model}-{args.lr}-{args.batch_size}-{args.sampling_rate}-{args.token_size}-{args.hop_length}"
     logger = WandbLogger(
         project="BIOT",
-        name=f"binary-supervised",
+        name=f"binary-supervised-{args.name}",
         save_dir="/data/engs-pnpl/lina4368/experiments/BIOT/logs",
     )
     early_stop_callback = EarlyStopping(
@@ -473,7 +477,7 @@ if __name__ == "__main__":
     parser.add_argument("--batch_size", type=int,
                         default=128, help="batch size")
     parser.add_argument("--num_workers", type=int,
-                        default=8, help="number of workers")
+                        default=16, help="number of workers")
     parser.add_argument("--dataset", type=str, default="Armeni2022", help="dataset")
     parser.add_argument(
         "--model", type=str, default="BIOT", help="which supervised model to use"
@@ -491,7 +495,7 @@ if __name__ == "__main__":
         "--sampling_rate", type=int, default=200, help="sampling rate (r)"
     )
     parser.add_argument("--token_size", type=int,
-                        default=200, help="token size (t)")
+                        default=250, help="token size (t)") # MUST BE set to number of samples in window
     parser.add_argument(
         "--hop_length", type=int, default=100, help="token hop length (t - p)"
     )
@@ -500,6 +504,9 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         '--seed', type=int, default=12345, help='random seed'
+    )
+    parser.add_argument(
+        '--name', type=str, default="unnamed", help='experiment name'
     )
     args = parser.parse_args()
     print(args)

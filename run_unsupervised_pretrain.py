@@ -95,6 +95,10 @@ def pretrain(args):
     train_loader = prepare_dataloader(args)
     
     save_prefix = "/data/engs-pnpl/lina4368/experiments/BIOT/weights"
+    # Construct path if it doesn't exist
+    if not os.path.exists(save_prefix):
+        os.makedirs(save_prefix)
+
     # define the trainer
     N_version = (
         len(os.listdir(os.path.join(save_prefix))) + 1
@@ -118,6 +122,7 @@ def pretrain(args):
         enable_checkpointing=True,
         logger=logger,
         max_epochs=args.epochs,
+        log_every_n_steps=50 if args.truncate == 0 else min(50, args.truncate // args.batch_size),
     )
 
     # train the model
@@ -126,11 +131,11 @@ def pretrain(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--epochs", type=int, default=100, help="number of epochs")
+    parser.add_argument("--epochs", type=int, default=100, help="number of epochs; -1 for infinite.")
     parser.add_argument("--lr", type=float, default=1e-4, help="learning rate")
     parser.add_argument("--weight_decay", type=float, default=1e-5, help="weight decay")
     parser.add_argument("--batch_size", type=int, default=128, help="batch size")
-    parser.add_argument("--num_workers", type=int, default=32, help="number of workers")
+    parser.add_argument("--num_workers", type=int, default=16, help="number of workers")
     parser.add_argument("--truncate", type=int, default=0, help="truncate train set for development")
     args = parser.parse_args()
     print (args)

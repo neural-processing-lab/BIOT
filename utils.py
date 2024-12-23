@@ -9,67 +9,104 @@ from scipy.signal import resample
 from scipy.signal import butter, iirnotch, filtfilt
 from scipy.interpolate import interp1d
 from scipy.signal import butter, lfilter
-from pnpl.datasets import Shafto2014, Gwilliams2022, Armeni2022
+from pnpl.datasets import Gwilliams2022
 
 class ArmeniLoader(torch.utils.data.Dataset):
-    def __init__(self, split):
-            
-        if split == "train":
-            self.data = Armeni2022(
-                data_path="/data/engs-pnpl/datasets/armeni2022",
-                preproc_path="/data/engs-pnpl/datasets/armeni2022",
-                l_freq=0.5,
-                h_freq=100,
-                resample_freq=200,
-                notch_freq=50,
-                interpolate_bad_channels=True,
-                window_len=1.0,
-                label="speech",
-                info=["subject_id", "session", "dataset"],
-                # include_subjects=["001", "003"],
-                # include_sessions={"001": ["001", "002"]},
-                exclude_sessions={"001": ["009", "010"], "002": ["009", "010"], "003": ["009", "010"]},
-            )
-        elif split == "val":
-            self.data = Armeni2022(
-                data_path="/data/engs-pnpl/datasets/armeni2022",
-                preproc_path="/data/engs-pnpl/datasets/armeni2022",
-                l_freq=0.5,
-                h_freq=100,
-                resample_freq=200,
-                notch_freq=50,
-                interpolate_bad_channels=True,
-                window_len=1.0,
-                label="speech",
-                info=["subject_id", "session", "dataset"],
-                include_sessions={"001": ["009"], "002": ["009"], "003": ["009"]},
-            )
-        elif split == "test":
-            self.data = Armeni2022(
-                data_path="/data/engs-pnpl/datasets/armeni2022",
-                preproc_path="/data/engs-pnpl/datasets/armeni2022",
-                l_freq=0.5,
-                h_freq=100,
-                resample_freq=200,
-                notch_freq=50,
-                interpolate_bad_channels=True,
-                window_len=1.0,
-                label="speech",
-                info=["subject_id", "session", "dataset"],
-                include_sessions={"001": ["010"], "002": ["010"], "003": ["010"]},
-            )
-        else:
-            raise ValueError(f"Unkown split: {split}")
+    def __init__(self, split, truncate=0):
+        self.meg_files = list(
+            glob.glob(f'/data/engs-pnpl/datasets/armeni2022/derivatives/dulhan_megalodon_redux_speech/{split}/meg_*.npy')
+        )
         
+        if split == 'test':
+            # Sort files numerically for test set to allow for strided speech detection processing
+            self.meg_files.sort(key=lambda x: int(x.split("_")[-1].split(".")[0]))
+        else:
+            random.shuffle(self.meg_files)
+
+        if truncate > 0:
+            self.meg_files = self.meg_files[:truncate]
+
+        self.label_files = list(map(lambda x: x.replace('meg_', 'label_'), self.meg_files))
+    
     def __len__(self):
-        return len(self.data)
+        return len(self.meg_files)
 
     def __getitem__(self, index):
-        X = torch.FloatTensor(self.data[index]["data"])[:18, :] # 18 channels only
-        Y = torch.IntTensor(self.data[index]["speech"])
-        sums = Y.sum(dim=0) # [batch_size] counting the number of 1s in each window
-        speech_labels = (sums > (Y.shape[0] * 0.5)).float() # [batch_size]
-        return X, speech_labels
+        # (n_channels, n_samples)
+        sample = np.load(self.meg_files[index]) # 1s @ 250Hz
+
+        labels = torch.from_numpy(np.load(self.label_files[index])).float()
+
+        # normalize samples using 95% quantile for each sensor
+        sample = sample / (
+            np.quantile(np.abs(sample), q=0.95, method="linear", axis=-1, keepdims=True)
+            + 1e-16
+        )
+
+        sums = labels.sum() # counting the number of 1s in this window
+        speech_label = (sums > (len(labels) * 0.5)).float()
+
+        return torch.from_numpy(sample).float(), speech_label
+
+# class ArmeniLoader(torch.utils.data.Dataset):
+#     def __init__(self, split):
+            
+#         if split == "train":
+#             self.data = Armeni2022(
+#                 data_path="/data/engs-pnpl/datasets/armeni2022",
+#                 preproc_path="/data/engs-pnpl/datasets/armeni2022",
+#                 l_freq=0.5,
+#                 h_freq=100,
+#                 resample_freq=200,
+#                 notch_freq=50,
+#                 interpolate_bad_channels=True,
+#                 window_len=1.0,
+#                 label="speech",
+#                 info=["subject_id", "session", "dataset"],
+#                 # include_subjects=["001", "003"],
+#                 # include_sessions={"001": ["001", "002"]},
+#                 exclude_sessions={"001": ["009", "010"], "002": ["009", "010"], "003": ["009", "010"]},
+#             )
+#         elif split == "val":
+#             self.data = Armeni2022(
+#                 data_path="/data/engs-pnpl/datasets/armeni2022",
+#                 preproc_path="/data/engs-pnpl/datasets/armeni2022",
+#                 l_freq=0.5,
+#                 h_freq=100,
+#                 resample_freq=200,
+#                 notch_freq=50,
+#                 interpolate_bad_channels=True,
+#                 window_len=1.0,
+#                 label="speech",
+#                 info=["subject_id", "session", "dataset"],
+#                 include_sessions={"001": ["009"], "002": ["009"], "003": ["009"]},
+#             )
+#         elif split == "test":
+#             self.data = Armeni2022(
+#                 data_path="/data/engs-pnpl/datasets/armeni2022",
+#                 preproc_path="/data/engs-pnpl/datasets/armeni2022",
+#                 l_freq=0.5,
+#                 h_freq=100,
+#                 resample_freq=200,
+#                 notch_freq=50,
+#                 interpolate_bad_channels=True,
+#                 window_len=1.0,
+#                 label="speech",
+#                 info=["subject_id", "session", "dataset"],
+#                 include_sessions={"001": ["010"], "002": ["010"], "003": ["010"]},
+#             )
+#         else:
+#             raise ValueError(f"Unkown split: {split}")
+        
+#     def __len__(self):
+#         return len(self.data)
+
+#     def __getitem__(self, index):
+#         X = torch.FloatTensor(self.data[index]["data"])[:18, :] # 18 channels only
+#         Y = torch.IntTensor(self.data[index]["speech"])
+#         sums = Y.sum(dim=0) # [batch_size] counting the number of 1s in each window
+#         speech_labels = (sums > (Y.shape[0] * 0.5)).float() # [batch_size]
+#         return X, speech_labels
 
 class GwilliamsLoader(torch.utils.data.Dataset):
     def __init__(self, split):
@@ -351,10 +388,10 @@ class CamCANUnsupervisedLoader(torch.utils.data.Dataset):
         # (n_channels, n_samples)
         sample = np.load(self.meg_files[index]) # 1s @ 250Hz
 
-        # normalize samples using 95% quantile for each channel
+        # normalize samples using 95% quantile for each sensor
         sample = sample / (
             np.quantile(np.abs(sample), q=0.95, method="linear", axis=-1, keepdims=True)
-            + 1e-8
+            + 1e-16
         )
 
         # sample = resample(sample, 6000, axis=-1)

@@ -27,7 +27,7 @@ class ClassificationHead(nn.Sequential):
     def __init__(self, emb_size, n_classes):
         super().__init__()
         self.clshead = nn.Sequential(
-            nn.ELU(),
+            # nn.ELU(),
             nn.Linear(emb_size, n_classes),
         )
 
@@ -157,7 +157,8 @@ class BIOTClassifier(nn.Module):
         self.take_emb_mean = kwargs.get("take_emb_mean", True)
         for p in self.biot.parameters():
             p.requires_grad = False
-        self.classifier = ClassificationHead(emb_size * 36, n_classes)
+        # self.classifier = ClassificationHead(emb_size * 36, n_classes)
+        self.classifier = ClassificationHead(emb_size * 269, n_classes)
 
     def forward(self, x):
         
